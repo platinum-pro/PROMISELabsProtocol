@@ -9,33 +9,36 @@ data <- read.csv("~/Downloads/Agg_percentage_analysis.csv")
 # Convert All column to numeric if needed
 data$All <- as.numeric(data$All)
 
-# Define the Koff function
-Koff <- function(x, alpha, Qo, data) {
-  # Calculate k from the range of observed Q values (dependent variable)
-  valid_q <- data$All[!is.na(data$All) & data$All > 0]
-  k <- log10(max(valid_q)) - log10(min(valid_q))
-  Qo * 10^(k * (exp(-alpha * Qo * x) - 1))
+# GLOBAL k: Fixed at 2 for all analyses
+k_global <- 2
+
+cat("######################################\n")
+cat("GLOBAL PARAMETER\n")
+cat("######################################\n")
+cat("k (fixed globally) =", k_global, "\n")
+cat("This assumes demand asymptotes to ~1% of Q0\n")
+cat("k is treated as a property of the measurement instrument\n\n")
+
+# Define the Koff function with FIXED k
+Koff <- function(x, alpha, Qo, k_fixed) {
+  Qo * 10^(k_fixed * (exp(-alpha * Qo * x) - 1))
 }
 
 # Function to calculate P50 using numerical root-finding
-calculate_p50 <- function(alpha, Qo, data, target_q = 50) {
-  # Calculate k from the range of observed Q values (dependent variable)
-  valid_q <- data$All[!is.na(data$All) & data$All > 0]
-  k <- log10(max(valid_q)) - log10(min(valid_q))
-  
+calculate_p50 <- function(alpha, Qo, k_fixed, data, target_q = 50) {
   # Add check for valid inputs
-  if(alpha <= 0 || Qo <= 0 || k <= 0) {
+  if(alpha <= 0 || Qo <= 0 || k_fixed <= 0) {
     return(NA)
   }
   
   # Define the function we want to find the root of: Q(P) - target_q = 0
   objective_function <- function(price) {
-    q_pred <- Qo * 10^(k * (exp(-alpha * Qo * price) - 1))
+    q_pred <- Qo * 10^(k_fixed * (exp(-alpha * Qo * price) - 1))
     return(q_pred - target_q)
   }
   
   # Check if Q0 is above or below the target
-  q_at_zero <- Qo * 10^(k * (exp(0) - 1))  # Q at price = 0
+  q_at_zero <- Qo * 10^(k_fixed * (exp(0) - 1))  # Q at price = 0
   
   if(q_at_zero < target_q) {
     warning("Q0 is below target Q - P50 cannot be calculated")
@@ -73,12 +76,12 @@ calculate_p50 <- function(alpha, Qo, data, target_q = 50) {
 }
 
 # Function to fit model and calculate R-squared
-fit_and_calculate_rsq <- function(data) {
+fit_and_calculate_rsq <- function(data, k_fixed) {
   # Remove NA values
   valid_data <- data[!is.na(data$All) & data$x > 0, ]
   
   fit <- tryCatch({
-    nls(formula = All ~ Koff(x, alpha, Qo, data),
+    nls(formula = All ~ Koff(x, alpha, Qo, k_fixed),
         data = valid_data,
         start = list(alpha = 0.0000001, Qo = 100),
         algorithm = "port",
@@ -99,39 +102,40 @@ fit_and_calculate_rsq <- function(data) {
     # Get parameters
     params <- coef(fit)
     
-    # Calculate P50
-    p50 <- calculate_p50(params["alpha"], params["Qo"], valid_data, target_q = 50)
-    
-    # Calculate k for display
-    valid_q <- valid_data$All[!is.na(valid_data$All) & valid_data$All > 0]
-    k <- log10(max(valid_q)) - log10(min(valid_q))
+    # Calculate P50 using the fixed k
+    p50 <- calculate_p50(params["alpha"], params["Qo"], k_fixed, valid_data, target_q = 50)
     
     cat("R-squared =", round(r_squared, 4), "\n")
-    cat("k =", round(k, 4), "\n")
+    cat("k (fixed) =", k_fixed, "\n")
     cat("alpha =", format(params["alpha"], scientific = TRUE), "\n")
     cat("Q0 =", round(params["Qo"], 2), "\n")
     
     if(!is.na(p50)) {
-      cat("P50 =", round(p50, 2), "\n")
+      cat("P50 = ₦", formatC(p50, format = "f", big.mark = ",", digits = 2), "\n", sep = "")
     } else {
       cat("P50 could not be calculated\n")
     }
     
-    return(list(fit = fit, r_squared = r_squared, p50 = p50))
+    return(list(fit = fit, r_squared = r_squared, p50 = p50, k = k_fixed))
   }
   
   return(NULL)
 }
 
 # Create plot function
-create_plot <- function(data, fit_results) {
+create_plot <- function(data, fit_results, k_fixed) {
   # Remove zero or negative x values
   valid_data <- data[data$x > 0, ]
   x_range <- 10^seq(log10(min(valid_data$x)), log10(max(valid_data$x)), length.out = 100)
   plot_data <- data.frame(x = x_range)
   
   if (!is.null(fit_results$fit)) {
-    plot_data$All_pred <- predict(fit_results$fit, newdata = data.frame(x = x_range))
+    # Generate predictions using the fixed k
+    params <- coef(fit_results$fit)
+    plot_data$All_pred <- Koff(x_range, 
+                               alpha = params["alpha"], 
+                               Qo = params["Qo"], 
+                               k_fixed = k_fixed)
   }
   
   p <- ggplot() +
@@ -176,8 +180,8 @@ create_plot <- function(data, fit_results) {
   return(p)
 }
 
-# Fit model and calculate R-squared
-fit_results <- fit_and_calculate_rsq(data)
+# Fit model and calculate R-squared using global k
+fit_results <- fit_and_calculate_rsq(data, k_global)
 
 # Print parameter values
 if (!is.null(fit_results$fit)) {
@@ -186,5 +190,5 @@ if (!is.null(fit_results$fit)) {
 }
 
 # Create and display plot
-p <- create_plot(data, fit_results)
+p <- create_plot(data, fit_results, k_global)
 print(p)
