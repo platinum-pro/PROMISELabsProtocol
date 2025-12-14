@@ -146,18 +146,15 @@ create_plot <- function(data, fit_results, k_fixed) {
   p <- p + geom_hline(yintercept = 50, linetype = "dotted", 
                       color = "grey50", alpha = 0.7)
   
-  # Add vertical line for P50 and horizontal/vertical intersection if P50 exists
+  # Add vertical line for P50 if it exists
   if (!is.null(fit_results$p50) && !is.na(fit_results$p50)) {
     if(fit_results$p50 >= min(valid_data$x) && fit_results$p50 <= max(valid_data$x)) {
       p <- p + 
         geom_vline(xintercept = fit_results$p50, linetype = "dashed", 
                    color = "blue", alpha = 0.7) +
-        # Add a point at the intersection
-        geom_point(aes(x = fit_results$p50, y = 50), 
-                   color = "blue", size = 3, shape = 21, fill = "white", stroke = 1.5) +
         # Add annotation for P50
         annotate("text", x = fit_results$p50, y = max(valid_data$All, na.rm = TRUE) * 0.95,
-                 label = paste0("P* = ₦", formatC(fit_results$p50, format = "f", big.mark = ",", digits = 2)),
+                 label = paste0("P50 = ₦", formatC(fit_results$p50, format = "f", big.mark = ",", digits = 2)),
                  hjust = -0.1, vjust = 1)
     }
   }
